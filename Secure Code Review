@@ -1,0 +1,227 @@
+Secure Code Review
+1. Introduction
+1.1 Overview of Secure Code Review
+A secure code review is a vital part of ensuring the security and integrity
+of a software system. It involves a detailed examination of the source
+code with a focus on identifying and mitigating vulnerabilities that could
+be exploited by attackers. This process is crucial in detecting common
+security flaws such as SQL injection, cross-site scripting (XSS), improper
+authentication mechanisms, and insecure data storage practices. Security
+vulnerabilities can lead to significant risks, including data breaches,
+unauthorized access, and application downtime.
+In today’s digital world, where cyber-attacks are increasingly
+sophisticated and widespread, ensuring the security of code before it
+goes into production is essential. Secure code reviews are typically
+performed manually by security experts or using automated tools
+designed to identify vulnerabilities based on predefined rules.
+1.2 Purpose of the Task
+The purpose of this report is to analyze a vulnerable code sample and
+identify the security flaws within it. This code is part of a simple web
+application using the Flask framework and an SQLite database for user
+registration, login, and a user dashboard. The analysis will cover potential
+security vulnerabilities, explain the risks associated with each
+vulnerability, and provide secure alternatives or solutions to mitigate
+those risks.
+The task also highlights the importance of secure coding practices and
+outlines recommendations for improving the security posture of the
+application.
+1.3 Methodology
+The methodology for this task involves:
+Reviewing the code and identifying potential security vulnerabilities.
+Providing an in-depth explanation of each vulnerability and its
+implications.
+Proposing solutions or best practices to address the vulnerabilities.
+Offering guidance on secure coding techniques to enhance the
+security of the application.
+2. Code Walkthrough
+Below is a simple Flask web application that contains several security vulnerabilities.
+This code handles user registration, login, and a user dashboard. We will walk
+through the code, examine its functionality, and identify the security flaws in each
+section.
+import sqlite3
+from flask import Flask, request, redirect, render_template, url_for, session
+app = Flask(__name__)
+app.secret_key = 'secretkey'
+# Database connection
+def get_db():
+conn = sqlite3.connect('users.db')
+conn.row_factory = sqlite3.Row
+return conn
+# User Registration Page
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+if request.method == 'POST':
+username = request.form['username']
+password = request.form['password']
+conn = get_db()
+cursor = conn.cursor()
+cursor.execute(f"INSERT INTO users (username, password) VALUES ('{username}', '{password}')")
+conn.commit()
+conn.close()
+return redirect(url_for('login'))
+return render_template('register.html')
+# User Login Page
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+if request.method == 'POST':
+username = request.form['username']
+password = request.form['password']
+conn = get_db()
+cursor = conn.cursor()
+cursor.execute(f"SELECT * FROM users WHERE username='{username}' AND password='{password}'")
+user = cursor.fetchone()
+conn.close()
+if user:
+session['user_id'] = user['id']
+return redirect(url_for('dashboard'))
+else:
+return 'Invalid credentials', 401
+return render_template('login.html')
+# User Dashboard
+@app.route('/dashboard')
+def dashboard():
+if 'user_id' not in session:
+return redirect(url_for('login'))
+return 'Welcome to your dashboard!'
+if __name__ == '__main__':
+app.run(debug=True)
+Code Overview
+This code is part of a basic web application built using the Flask framework. The app
+has three primary functionalities:
+1.User Registration: Users can register by providing a username and password.
+2.User Login: Users can log in with their credentials (username and password).
+3.Dashboard: After successful login, users are redirected to their dashboard.
+However, this simple application contains several vulnerabilities that need to be
+addressed for better security.
+3. Vulnerabilities and Risks
+3.1 SQL Injection
+Description of Vulnerability
+SQL injection occurs when user input is directly embedded into SQL queries without
+proper sanitization. In this application, user input for both username and password
+is directly inserted into SQL queries. For example, the register and login routes use
+string concatenation to build SQL queries:
+cursor.execute(f"INSERT INTO users (username, password) VALUES ('{username}',
+'{password}')")
+This practice makes the application vulnerable to SQL injection attacks, where an
+attacker could manipulate the SQL query by entering malicious data.
+Risk and Impact
+SQL injection attacks allow attackers to alter the SQL queries and potentially:
+Bypass authentication and gain unauthorized access to the application.
+Retrieve or modify sensitive user data in the database.
+Delete or corrupt data in the database, resulting in data loss.
+For example, an attacker might input the following for username in the login form:
+username = "admin' --"
+password = "password"
+This input would cause the SQL query to become:
+SELECT * FROM users WHERE username='admin' --' AND password='password'
+The -- sequence comments out the rest of the query, effectively bypassing the
+password check.
+Solution
+To prevent SQL injection, always use parameterized queries or prepared statements,
+which ensure that user input is treated as data, not executable code. For example:
+cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username,
+password))
+By using parameterized queries, the user input is treated as data, making it impossible
+for an attacker to manipulate the query structure.
+3.2 Storing Plaintext Passwords
+Description of Vulnerability
+In the registration route, the password is stored as plain text in the database:
+cursor.execute(f"INSERT INTO users (username, password) VALUES ('{username}',
+'{password}')")
+Storing passwords in plain text is a critical security vulnerability. If the database is
+compromised, attackers can easily access all user passwords.
+Risk and Impact
+Data Breach: If attackers gain access to the database, they can steal all user
+passwords.
+Account Compromise: Attackers can use the stolen passwords for further attacks,
+such as gaining access to other accounts or performing brute-force attacks.
+Solution
+Passwords should never be stored in plain text. Instead, use a secure cryptographic
+hash function to hash the password before storing it in the database. One widely used
+library for secure password hashing is bcrypt:
+from werkzeug.security import generate_password_hash, check_password_hash
+# Hash the password before storing it
+hashed_password = generate_password_hash(password)
+cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username,
+hashed_password))
+# Check the hashed password during login
+if check_password_hash(user['password'], password):
+ # Login successful
+This ensures that even if the database is compromised, attackers cannot easily recover
+the original passwords.
+3.3 Lack of Input Validation
+Description of Vulnerability
+The application does not validate or sanitize user inputs, such as the username
+and password fields. Malicious users could enter any kind of input, including
+scripts or overly long strings, which might cause unexpected behavior or even
+security risks such as Cross-Site Scripting (XSS).
+Risk and Impact
+XSS Attacks: If input is not sanitized before being rendered in the browser,
+attackers could inject malicious JavaScript, leading to XSS attacks.
+Application Crashes: Unchecked user inputs could also cause the
+application to crash or behave unpredictably.
+Solution
+All user inputs should be validated and sanitized to ensure that they are both
+expected and safe. For example, you can enforce rules for username (only
+alphanumeric characters) and password (minimum length). You can use regular
+expressions for validation:
+import re
+# Validate username
+if not re.match("^[A-Za-z0-9]+$", username):
+ return 'Invalid username', 400
+Additionally, user inputs should be sanitized before being rendered in the
+browser to prevent XSS.
+3.4 Weak Session Management
+Description of Vulnerability
+The application uses a static secret_key for managing sessions:
+app.secret_key = 'secretkey'
+Using a static or weak session key makes the application vulnerable to session
+hijacking or fixation attacks. If an attacker can guess or brute-force the session
+key, they could manipulate the session data, impersonating other users.
+Risk and Impact
+Session Hijacking: Attackers can steal or impersonate valid sessions,
+gaining unauthorized access to sensitive areas of the application.
+Privilege Escalation: Attackers might escalate privileges or gain full control
+of the application.
+Solution
+To mitigate this risk, always use a strong, randomly generated session secret
+key. For example:
+import os
+app.secret_key = os.urandom(24) # Use a securely generated random key
+3.5 Lack of HTTPS
+Description of Vulnerability
+The application does not enforce HTTPS, which means that all data, including
+sensitive information like passwords, is sent in plaintext over the network. This
+makes the application vulnerable to Man-in-the-Middle (MitM) attacks.
+Risk and Impact
+MitM Attacks: Attackers on the same network can intercept and read
+sensitive information, including passwords and session cookies.
+Data Tampering: Attackers can alter the data being transmitted between
+the client and server, potentially compromising the integrity of the
+application.
+Solution
+To prevent MitM attacks, always enforce HTTPS for all communication
+between the client and server. In a production environment, this can be
+accomplished by configuring an SSL/TLS certificate:
+app.config['PREFERRED_URL_SCHEME'] = 'https'
+Additionally, ensure that your web server (e.g., Nginx or Apache) is configured
+to use SSL certificates.
+4. Conclusion
+This secure code review has identified several critical vulnerabilities in the
+sample code, including SQL injection, storing plaintext passwords, lack of input
+validation, weak session management, and the absence of HTTPS. Each of
+these vulnerabilities exposes the application to various attack vectors,
+including unauthorized access, data breaches, session hijacking, and Man-inthe-Middle attacks.
+To mitigate these risks, we recommended a series of security improvements,
+including:
+Using parameterized queries to prevent SQL injection.
+Storing hashed passwords using strong cryptographic algorithms.
+Validating and sanitizing all user inputs.
+Using a strong, randomly generated session secret key.
+Enforcing HTTPS to ensure secure communication.
+By applying these secure coding practices and following security best
+practices, developers can significantly improve the security of their
+applications and reduce the risk of cyberattacks.
+Regular code reviews, automated security testing, and keeping up with the
+latest security trends and vulnerabilities are essential for maintaining secure
+software and protecting user data.
